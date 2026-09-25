@@ -263,6 +263,14 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
+  // developer tools for the widget UI while running from source (npm start / VS Code)
+  if (!app.isPackaged) {
+    mainWindow.webContents.on('before-input-event', (_e, input) => {
+      const combo = input.type === 'keyDown' && (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i'));
+      if (combo) mainWindow.webContents.toggleDevTools();
+    });
+  }
+
   mainWindow.on('moved', () => {
     settings.data.bounds = mainWindow.getBounds();
     settings.save();
