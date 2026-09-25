@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>메일 캘린더 위젯</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="card">
+      <header class="titlebar">
+        <span class="app-title">업무 일정</span>
+        <div class="title-actions">
+          <button id="btn-check" class="icon-btn" title="지금 메일 확인">⟳</button>
+          <button id="btn-hide" class="icon-btn" title="숨기기 (트레이 아이콘으로 다시 열기)">—</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-view="inbox">새 메일 <span id="badge" class="badge" hidden></span></button>
+        <button class="tab" data-view="calendar">캘린더</button>
+        <button class="tab" data-view="settings">설정</button>
+      </nav>
+
+      <main>
+        <section id="view-inbox" class="view"></section>
+
+        <section id="view-calendar" class="view" hidden>
+          <div class="month-head">
+            <button id="prev-month" class="icon-btn">‹</button>
+            <span id="month-label"></span>
+            <button id="next-month" class="icon-btn">›</button>
+          </div>
+          <div id="month-grid" class="month-grid"></div>
+          <div class="day-head">
+            <span id="day-label"></span>
+            <button id="btn-add-event" class="small-btn">+ 일정</button>
+          </div>
+          <div id="day-events"></div>
+          <div class="upcoming-head">다가오는 일정</div>
+          <div id="upcoming"></div>
+          <button id="btn-export" class="small-btn wide">전체 일정 .ics로 내보내기</button>
+        </section>
+
+        <section id="view-settings" class="view" hidden>
+          <form id="settings-form">
+            <fieldset>
+              <legend>다음 메일 계정 (IMAP)</legend>
+              <label>아이디 (예: myid 또는 myid@daum.net)<input name="user" autocomplete="off" /></label>
+              <label>비밀번호 / 앱 비밀번호<input name="password" type="password" autocomplete="off" /></label>
+              <div class="row">
+                <label class="grow">IMAP 서버<input name="host" /></label>
+                <label class="port">포트<input name="port" type="number" /></label>
+              </div>
+              <p class="hint">다음 메일 &gt; 환경설정 &gt; IMAP/POP3에서 <b>IMAP 사용</b>을 켜야 합니다. 2단계 인증을 쓰면 앱 비밀번호를 입력하세요.</p>
+              <button type="button" id="btn-test" class="small-btn">연결 테스트</button>
+              <span id="test-result" class="hint"></span>
+            </fieldset>
+
+            <fieldset>
+              <legend>업무 메일 규칙 (쉼표로 구분)</legend>
+              <label>회사 도메인<input name="workDomains" placeholder="mycompany.co.kr, partner.com" /></label>
+              <label>업무 발신자 메일주소<input name="workSenders" placeholder="boss@gmail.com" /></label>
+              <label>업무 키워드 (제목)<textarea name="includeKeywords" rows="2"></textarea></label>
+              <label>제외 키워드 (제목/발신자)<textarea name="excludeKeywords" rows="2"></textarea></label>
+              <p class="hint">회사 도메인·발신자에서 온 메일, 또는 제목에 업무 키워드가 있는 메일을 업무 메일로 봅니다. 본문에만 키워드가 있으면 날짜가 함께 있을 때만 인정합니다.</p>
+            </fieldset>
+
+            <fieldset>
+              <legend>동작</legend>
+              <label>메일 확인 주기 (분)<input name="pollMinutes" type="number" min="1" /></label>
+              <label class="check"><input name="autoAdd" type="checkbox" /> 날짜가 있으면 확인 없이 바로 캘린더에 추가</label>
+              <label class="check"><input name="notify" type="checkbox" /> 새 업무 메일 윈도우 알림</label>
+              <label class="check"><input name="openAtLogin" type="checkbox" /> 윈도우 시작 시 자동 실행</label>
+            </fieldset>
+
+            <button type="submit" class="primary wide">저장</button>
+          </form>
+        </section>
+      </main>
+
+      <footer id="status" class="status"></footer>
+    </div>
+
+    <template id="event-editor">
+      <div class="editor">
+        <input class="ed-title" placeholder="제목" />
+        <input class="ed-date" type="date" />
+        <div class="row">
+          <input class="ed-start" type="time" />
+          <span>~</span>
+          <input class="ed-end" type="time" />
+        </div>
+      </div>
+    </template>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
