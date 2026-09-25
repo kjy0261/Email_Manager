@@ -99,7 +99,7 @@ function renderInbox() {
   if (!cands.length) {
     const msg = state.status.accountReady
       ? '확인할 새 업무 메일이 없습니다.\n새 업무 메일이 오면 여기에 일정 후보가 나타납니다.'
-      : '먼저 설정 탭에서 다음 메일 계정을 입력하세요.';
+      : '먼저 설정 탭에서 메일 계정(다음·네이버·Gmail)을 추가하세요.';
     view.append(el('div', { class: 'empty', text: msg, style: 'white-space: pre-line' }));
     return;
   }
@@ -120,7 +120,10 @@ function renderInbox() {
 
     const card = el('div', { class: 'cand' }, [
       el('div', { class: 'cand-subject', text: c.subject || '(제목 없음)' }),
-      el('div', { class: 'cand-meta', text: `${c.from} · ${relativeTime(c.receivedAt)} · ${c.reason}` }),
+      el('div', {
+        class: 'cand-meta',
+        text: [c.account, c.from, relativeTime(c.receivedAt), c.reason].filter(Boolean).join(' · '),
+      }),
       c.summary ? summary : null,
       ...rows,
       el('div', { class: 'cand-actions' }, [
@@ -253,14 +256,55 @@ $('#btn-export').addEventListener('click', () => api.exportIcs());
 
 // ---------- settings ----------
 
+function accountCard(acc) {
+  const card = $('#account-card').content.firstElementChild.cloneNode(true);
+  const q = (sel) => card.querySelector(sel);
+  const providers = state.providers;
+  for (const [id, p] of Object.entries(providers)) q('.acc-provider').append(el('option', { value: id, text: p.label }));
+  q('.acc-provider').value = providers[acc.provider] ? acc.provider : 'custom';
+  q('.acc-user').value = acc.user || '';
+  q('.acc-password').placeholder = acc.hasPassword ? '저장됨 (바꿀 때만 입력)' : '';
+  q('.acc-host').value = acc.host || '';
+  q('.acc-port').value = acc.port || 993;
+
+  // presets use their own server; only "기타" shows host/port fields
+  const sync = () => {
+    const p = providers[q('.acc-provider').value];
+    q('.acc-user-label').textContent = p.userHint;
+    q('.acc-help').textContent = p.help;
+    q('.acc-server').hidden = q('.acc-provider').value !== 'custom';
+  };
+  q('.acc-provider').addEventListener('change', sync);
+  sync();
+
+  card.read = () => ({
+    id: acc.id,
+    provider: q('.acc-provider').value,
+    user: q('.acc-user').value.trim(),
+    password: q('.acc-password').value,
+    host: q('.acc-host').value.trim(),
+    port: Number(q('.acc-port').value) || 993,
+  });
+  q('.acc-remove').addEventListener('click', () => {
+    card.remove();
+    settingsDirty = true;
+  });
+  q('.acc-test').addEventListener('click', async () => {
+    const out = q('.acc-result');
+    out.className = 'hint acc-result';
+    out.textContent = '연결 중...';
+    const r = await api.testMail(card.read());
+    out.className = `acc-result ${r.ok ? 'ok' : 'fail'}`;
+    out.textContent = r.message;
+  });
+  return card;
+}
+
 function fillSettings() {
   const s = state.settings;
   const f = $('#settings-form');
-  f.user.value = s.account.user;
-  f.password.value = '';
-  f.password.placeholder = s.account.hasPassword ? '저장됨 (바꿀 때만 입력)' : '';
-  f.host.value = s.account.host;
-  f.port.value = s.account.port;
+  const accounts = s.accounts.length ? s.accounts : [{ provider: 'daum' }];
+  $('#account-list').replaceChildren(...accounts.map(accountCard));
   f.workDomains.value = s.rules.workDomains.join(', ');
   f.workSenders.value = s.rules.workSenders.join(', ');
   f.includeKeywords.value = s.rules.includeKeywords.join(', ');
@@ -269,13 +313,17 @@ function fillSettings() {
   f.autoAdd.checked = s.autoAdd;
   f.notify.checked = s.notify;
   f.openAtLogin.checked = s.openAtLogin;
-  $('#test-result').textContent = '';
   settingsDirty = false;
 }
 
-function readAccount(f) {
-  return { user: f.user.value.trim(), password: f.password.value, host: f.host.value.trim(), port: Number(f.port.value) };
-}
+$('#btn-add-account').addEventListener('click', () => {
+  const used = new Set([...document.querySelectorAll('.acc-provider')].map((x) => x.value));
+  const next = ['daum', 'naver', 'gmail'].find((p) => !used.has(p)) || 'custom';
+  const card = accountCard({ provider: next });
+  $('#account-list').append(card);
+  card.querySelector('.acc-user').focus();
+  settingsDirty = true;
+});
 
 $('#settings-form').addEventListener('input', () => (settingsDirty = true));
 
@@ -284,7 +332,7 @@ $('#settings-form').addEventListener('submit', async (e) => {
   const f = e.target;
   try {
     state = await api.saveSettings({
-      account: readAccount(f),
+      accounts: [...document.querySelectorAll('#account-list .account')].map((c) => c.read()),
       pollMinutes: Number(f.pollMinutes.value),
       autoAdd: f.autoAdd.checked,
       notify: f.notify.checked,
@@ -302,15 +350,6 @@ $('#settings-form').addEventListener('submit', async (e) => {
   } catch (err) {
     setStatusLine(String(err.message || err), true);
   }
-});
-
-$('#btn-test').addEventListener('click', async () => {
-  const out = $('#test-result');
-  out.className = 'hint';
-  out.textContent = '연결 중...';
-  const r = await api.testMail(readAccount($('#settings-form')));
-  out.className = r.ok ? 'ok' : 'fail';
-  out.textContent = r.message;
 });
 
 // ---------- title bar / status ----------

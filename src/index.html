@@ -45,16 +45,9 @@
         <section id="view-settings" class="view" hidden>
           <form id="settings-form">
             <fieldset>
-              <legend>다음 메일 계정 (IMAP)</legend>
-              <label>아이디 (예: myid 또는 myid@daum.net)<input name="user" autocomplete="off" /></label>
-              <label>비밀번호 / 앱 비밀번호<input name="password" type="password" autocomplete="off" /></label>
-              <div class="row">
-                <label class="grow">IMAP 서버<input name="host" /></label>
-                <label class="port">포트<input name="port" type="number" /></label>
-              </div>
-              <p class="hint">다음 메일 &gt; 환경설정 &gt; IMAP/POP3에서 <b>IMAP 사용</b>을 켜야 합니다. 2단계 인증을 쓰면 앱 비밀번호를 입력하세요.</p>
-              <button type="button" id="btn-test" class="small-btn">연결 테스트</button>
-              <span id="test-result" class="hint"></span>
+              <legend>메일 계정 (IMAP)</legend>
+              <div id="account-list"></div>
+              <button type="button" id="btn-add-account" class="small-btn">+ 계정 추가</button>
             </fieldset>
 
             <fieldset>
@@ -91,6 +84,24 @@
           <span>~</span>
           <input class="ed-end" type="time" />
         </div>
+      </div>
+    </template>
+
+    <template id="account-card">
+      <div class="account">
+        <div class="row">
+          <select class="acc-provider"></select>
+          <button type="button" class="icon-btn acc-remove" title="이 계정 삭제">✕</button>
+        </div>
+        <label><span class="acc-user-label">아이디</span><input class="acc-user" autocomplete="off" /></label>
+        <label>비밀번호 / 앱 비밀번호<input class="acc-password" type="password" autocomplete="off" /></label>
+        <div class="row acc-server">
+          <label class="grow">IMAP 서버<input class="acc-host" placeholder="imap.example.com" /></label>
+          <label class="port">포트<input class="acc-port" type="number" /></label>
+        </div>
+        <p class="hint acc-help"></p>
+        <button type="button" class="small-btn acc-test">연결 테스트</button>
+        <span class="hint acc-result"></span>
       </div>
     </template>
 

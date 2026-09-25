@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const { JsonStore } = require('./lib/jsonStore');
 const { DEFAULT_RULES } = require('./lib/rules');
 const { mailToCandidate } = require('./lib/processMail');
-const { DAUM_IMAP, fetchNewMail, testConnection, friendlyError } = require('./lib/mailWatcher');
+const { fetchNewMail, testConnection, friendlyError } = require('./lib/mailWatcher');
+const { PROVIDERS, providerOf, serverFor, normalizePassword } = require('./lib/providers');
 const { toIcs } = require('./lib/ics');
 
 const APP_ID = 'com.mailcalendarwidget.app';
@@ -24,7 +25,8 @@ let quitting = false;
 
 const userDir = app.getPath('userData');
 const settings = new JsonStore(path.join(userDir, 'settings.json'), {
-  account: { host: DAUM_IMAP.host, port: DAUM_IMAP.port, user: '', passEnc: '' },
+  // [{ id, provider: 'daum'|'naver'|'gmail'|'custom', user, passEnc, host, port }]
+  accounts: [],
   pollMinutes: 3,
   autoAdd: false,
   notify: true,
@@ -34,13 +36,29 @@ const settings = new JsonStore(path.join(userDir, 'settings.json'), {
   bounds: null,
 });
 // events: confirmed calendar entries; candidates: work mails waiting for the
-// user to confirm; cursor/processedIds: where the IMAP check left off.
+// user to confirm; cursors (per account id)/processedIds: where the IMAP
+// check left off.
 const data = new JsonStore(path.join(userDir, 'data.json'), {
   events: [],
   candidates: [],
-  cursor: {},
+  cursors: {},
   processedIds: [],
 });
+
+// Earlier versions had a single Daum account under settings.account.
+(function migrateSingleAccount() {
+  const old = settings.data.account;
+  if (!old) return;
+  if (old.user) {
+    const id = crypto.randomUUID();
+    settings.data.accounts.push({ id, provider: 'daum', user: old.user, passEnc: old.passEnc, host: '', port: 993 });
+    if (data.data.cursor) data.data.cursors[id] = data.data.cursor;
+  }
+  delete settings.data.account;
+  delete data.data.cursor;
+  settings.save();
+  data.save();
+})();
 const status = { checking: false, lastCheck: null, message: '', error: false };
 
 // ---------- password (Windows DPAPI via safeStorage) ----------
@@ -59,22 +77,32 @@ function decryptPassword(enc) {
   }
 }
 
-function accountForImap() {
-  const a = settings.data.account;
-  return { host: a.host, port: a.port, user: a.user, pass: decryptPassword(a.passEnc) };
+function accountForImap(a) {
+  return { provider: a.provider, host: a.host, port: a.port, user: a.user, pass: decryptPassword(a.passEnc) };
+}
+
+function readyAccounts() {
+  return settings.data.accounts.filter((a) => a.user && a.passEnc);
 }
 
 function isAccountReady() {
-  const a = settings.data.account;
-  return !!(a.user && a.passEnc);
+  return readyAccounts().length > 0;
+}
+
+function accountLabel(a) {
+  return PROVIDERS[a.provider] && a.provider !== 'custom' ? `${providerOf(a.provider).label} ${a.user}` : `${a.user} (${a.host})`;
 }
 
 // ---------- state sent to the renderer ----------
 
 function publicState() {
-  const { account, ...rest } = settings.data;
+  const { accounts, ...rest } = settings.data;
   return {
-    settings: { ...rest, account: { host: account.host, port: account.port, user: account.user, hasPassword: !!account.passEnc } },
+    settings: {
+      ...rest,
+      accounts: accounts.map(({ passEnc, ...a }) => ({ ...a, hasPassword: !!passEnc })),
+    },
+    providers: PROVIDERS,
     events: [...data.data.events].sort((a, b) => `${a.date}${a.start || ''}`.localeCompare(`${b.date}${b.start || ''}`)),
     candidates: data.data.candidates,
     status: { ...status, accountReady: isAccountReady() },
@@ -137,38 +165,53 @@ function notifyNew(candidates) {
 
 async function checkMail() {
   if (status.checking) return;
-  if (!isAccountReady()) {
-    setStatus('설정 탭에서 다음 메일 계정을 입력하세요.', true);
+  const accounts = readyAccounts();
+  if (!accounts.length) {
+    setStatus('설정 탭에서 메일 계정을 추가하세요.', true);
     return;
   }
   status.checking = true;
   setStatus('메일 확인 중...');
+  const created = [];
+  const errors = [];
   try {
-    const { mails, cursor } = await fetchNewMail(accountForImap(), data.data.cursor);
     const seen = new Set(data.data.processedIds);
-    const created = [];
-    for (const mail of mails) {
-      if (seen.has(mail.messageId)) continue;
-      seen.add(mail.messageId);
-      data.data.processedIds.push(mail.messageId);
-      const candidate = mailToCandidate(mail, settings.data.rules);
-      if (!candidate) continue;
-      const hasRealDates = candidate.events.some((e) => !e.noDate);
-      if (settings.data.autoAdd && hasRealDates) {
-        addEventsFromCandidate(candidate, candidate.events.filter((e) => !e.noDate));
-      } else {
-        data.data.candidates.unshift(candidate);
+    // accounts are checked in parallel, and one failing (wrong password,
+    // IMAP off, server unreachable) doesn't stop the others
+    const results = await Promise.allSettled(
+      accounts.map((account) => fetchNewMail(accountForImap(account), data.data.cursors[account.id])),
+    );
+    results.forEach((result, i) => {
+      const account = accounts[i];
+      if (result.status === 'rejected') {
+        errors.push(`[${accountLabel(account)}] ${friendlyError(result.reason, account)}`);
+        return;
       }
-      created.push(candidate);
-    }
+      const { mails, cursor } = result.value;
+      for (const mail of mails) {
+        if (seen.has(mail.messageId)) continue;
+        seen.add(mail.messageId);
+        data.data.processedIds.push(mail.messageId);
+        const candidate = mailToCandidate(mail, settings.data.rules);
+        if (!candidate) continue;
+        candidate.account = accountLabel(account);
+        const hasRealDates = candidate.events.some((e) => !e.noDate);
+        if (settings.data.autoAdd && hasRealDates) {
+          addEventsFromCandidate(candidate, candidate.events.filter((e) => !e.noDate));
+        } else {
+          data.data.candidates.unshift(candidate);
+        }
+        created.push(candidate);
+      }
+      data.data.cursors[account.id] = cursor;
+    });
     data.data.processedIds = data.data.processedIds.slice(-MAX_PROCESSED_IDS);
-    data.data.cursor = cursor;
     data.save();
     status.lastCheck = new Date().toISOString();
     notifyNew(created);
-    setStatus(created.length ? `새 업무 메일 ${created.length}건` : '새 업무 메일 없음');
-  } catch (err) {
-    setStatus(friendlyError(err), true);
+    const summary = created.length ? `새 업무 메일 ${created.length}건` : '새 업무 메일 없음';
+    if (errors.length) setStatus(`${errors.join('\n')}${errors.length < accounts.length ? `\n(나머지 계정: ${summary})` : ''}`, true);
+    else setStatus(summary);
   } finally {
     status.checking = false;
     broadcast();
@@ -307,13 +350,31 @@ ipcMain.handle('state:get', () => publicState());
 
 ipcMain.handle('settings:save', (_e, input) => {
   const s = settings.data;
-  const acc = input.account || {};
-  const newUser = String(acc.user || '').trim();
-  if (newUser !== s.account.user) data.data.cursor = {}; // different mailbox, start over
-  s.account.user = newUser;
-  s.account.host = String(acc.host || DAUM_IMAP.host).trim();
-  s.account.port = Number(acc.port) || DAUM_IMAP.port;
-  if (acc.password) s.account.passEnc = encryptPassword(acc.password);
+  const previous = new Map(s.accounts.map((a) => [a.id, a]));
+  const accounts = [];
+  for (const acc of input.accounts || []) {
+    const user = String(acc.user || '').trim();
+    if (!user) continue;
+    const old = previous.get(acc.id);
+    const next = {
+      id: old ? old.id : crypto.randomUUID(),
+      provider: PROVIDERS[acc.provider] ? acc.provider : 'custom',
+      user,
+      host: String(acc.host || '').trim(),
+      port: Number(acc.port) || 993,
+      passEnc: old ? old.passEnc : '',
+    };
+    if (acc.password) next.passEnc = encryptPassword(normalizePassword(next.provider, acc.password));
+    // a different mailbox behind the same entry: start that account over
+    const oldServer = old && serverFor(old);
+    const newServer = serverFor(next);
+    if (old && (old.user !== next.user || oldServer.host !== newServer.host)) delete data.data.cursors[next.id];
+    accounts.push(next);
+  }
+  for (const id of previous.keys()) {
+    if (!accounts.some((a) => a.id === id)) delete data.data.cursors[id];
+  }
+  s.accounts = accounts;
   s.pollMinutes = Math.max(MIN_POLL_MINUTES, Number(input.pollMinutes) || 3);
   s.autoAdd = !!input.autoAdd;
   s.notify = !!input.notify;
@@ -331,14 +392,15 @@ ipcMain.handle('settings:save', (_e, input) => {
   return publicState();
 });
 
-ipcMain.handle('mail:test', async (_e, acc) => {
-  const current = accountForImap();
-  return testConnection({
-    host: (acc && acc.host) || current.host,
-    port: (acc && acc.port) || current.port,
-    user: (acc && acc.user) || current.user,
-    pass: (acc && acc.password) || current.pass,
-  });
+// Test what's typed in the form; fall back to the saved password when the
+// password field was left empty for an existing account.
+ipcMain.handle('mail:test', async (_e, acc = {}) => {
+  const saved = settings.data.accounts.find((a) => a.id === acc.id);
+  const provider = acc.provider || 'custom';
+  const pass = acc.password ? normalizePassword(provider, acc.password) : saved ? decryptPassword(saved.passEnc) : '';
+  if (!acc.user || !pass) return { ok: false, message: '아이디와 비밀번호를 입력하세요.' };
+  if (!serverFor({ ...acc, provider }).host) return { ok: false, message: 'IMAP 서버 주소를 입력하세요.' };
+  return testConnection({ provider, host: acc.host, port: acc.port, user: String(acc.user).trim(), pass });
 });
 
 ipcMain.handle('mail:check', async () => {
