@@ -546,6 +546,17 @@ ipcMain.on('window:hide', (event) => {
 
 // ---------- app lifecycle ----------
 
+// Last line of defence: a stray network error must not pop Electron's crash
+// dialog. Show it in the widget's status line and keep running; the next
+// scheduled check starts with a fresh connection.
+function reportBackgroundError(err) {
+  console.error(err);
+  status.checking = false;
+  if (settings) setStatus(friendlyError(err), true);
+}
+process.on('uncaughtException', reportBackgroundError);
+process.on('unhandledRejection', reportBackgroundError);
+
 function lockDownSessions() {
   const { session } = require('electron');
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, callback) => callback(false));
