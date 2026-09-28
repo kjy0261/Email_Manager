@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
     <title>메일 캘린더 위젯</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -45,16 +45,9 @@
         <section id="view-settings" class="view" hidden>
           <form id="settings-form">
             <fieldset>
-              <legend>다음 메일 계정 (IMAP)</legend>
-              <label>아이디 (예: myid 또는 myid@daum.net)<input name="user" autocomplete="off" /></label>
-              <label>비밀번호 / 앱 비밀번호<input name="password" type="password" autocomplete="off" /></label>
-              <div class="row">
-                <label class="grow">IMAP 서버<input name="host" /></label>
-                <label class="port">포트<input name="port" type="number" /></label>
-              </div>
-              <p class="hint">다음 메일 &gt; 환경설정 &gt; IMAP/POP3에서 <b>IMAP 사용</b>을 켜야 합니다. 2단계 인증을 쓰면 앱 비밀번호를 입력하세요.</p>
-              <button type="button" id="btn-test" class="small-btn">연결 테스트</button>
-              <span id="test-result" class="hint"></span>
+              <legend>메일 계정 (IMAP)</legend>
+              <div id="account-list"></div>
+              <button type="button" id="btn-add-account" class="small-btn">+ 계정 추가</button>
             </fieldset>
 
             <fieldset>
@@ -76,6 +69,12 @@
 
             <button type="submit" class="primary wide">저장</button>
           </form>
+
+          <fieldset class="danger-zone">
+            <legend>데이터 삭제</legend>
+            <p class="hint">저장된 메일 계정·비밀번호, 일정 후보, 캘린더 일정을 이 PC에서 모두 지웁니다. 메일함의 메일은 지워지지 않습니다.</p>
+            <button type="button" id="btn-wipe" class="small-btn danger">모든 데이터 삭제</button>
+          </fieldset>
         </section>
       </main>
 
@@ -91,6 +90,24 @@
           <span>~</span>
           <input class="ed-end" type="time" />
         </div>
+      </div>
+    </template>
+
+    <template id="account-card">
+      <div class="account">
+        <div class="row">
+          <select class="acc-provider"></select>
+          <button type="button" class="icon-btn acc-remove" title="이 계정 삭제">✕</button>
+        </div>
+        <label><span class="acc-user-label">아이디</span><input class="acc-user" autocomplete="off" /></label>
+        <label>비밀번호 / 앱 비밀번호<input class="acc-password" type="password" autocomplete="off" /></label>
+        <div class="row acc-server">
+          <label class="grow">IMAP 서버<input class="acc-host" placeholder="imap.example.com" /></label>
+          <label class="port">포트<input class="acc-port" type="number" /></label>
+        </div>
+        <p class="hint acc-help"></p>
+        <button type="button" class="small-btn acc-test">연결 테스트</button>
+        <span class="hint acc-result"></span>
       </div>
     </template>
 

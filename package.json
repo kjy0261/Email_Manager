@@ -1,7 +1,7 @@
 {
   "name": "mail-calendar-widget",
   "version": "1.0.0",
-  "description": "Windows desktop widget that watches Daum mail over IMAP and turns work mails into calendar entries",
+  "description": "Windows desktop widget that watches Daum/Naver/Gmail mail over IMAP and turns work mails into calendar entries",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -28,10 +28,17 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.png"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "onlyLoadAppFromAsar": true
     }
   },
   "devDependencies": {
-    "electron": "^31.7.7",
-    "electron-builder": "^24.13.3"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   }
 }

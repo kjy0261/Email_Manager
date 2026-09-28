@@ -34,6 +34,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -155,7 +159,7 @@ main {
 
 .status.error {
   color: var(--danger);
-  white-space: normal;
+  white-space: pre-line;
 }
 
 .empty {
@@ -476,10 +480,41 @@ form label.check input {
   margin: 4px 0 6px;
 }
 
-#test-result.ok {
+.account {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+  background: var(--bg-soft);
+}
+
+.account .row {
+  margin-bottom: 6px;
+}
+
+.account select {
+  flex: 1;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.danger-zone {
+  margin-top: 14px;
+}
+
+.small-btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.acc-result.ok {
   color: var(--event);
 }
 
-#test-result.fail {
+.acc-result.fail {
   color: var(--danger);
 }
