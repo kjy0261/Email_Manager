@@ -502,6 +502,15 @@ form label.check input {
   padding: 4px 6px;
 }
 
+.danger-zone {
+  margin-top: 14px;
+}
+
+.small-btn.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .acc-result.ok {
   color: var(--event);
 }

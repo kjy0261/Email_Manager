@@ -352,6 +352,13 @@ $('#settings-form').addEventListener('submit', async (e) => {
   }
 });
 
+$('#btn-wipe').addEventListener('click', async () => {
+  if (!confirm('메일 계정·비밀번호, 일정 후보, 캘린더 일정을 모두 삭제할까요?\n되돌릴 수 없습니다.')) return;
+  state = await api.wipeData();
+  fillSettings();
+  render(state);
+});
+
 // ---------- title bar / status ----------
 
 $('#btn-hide').addEventListener('click', () => api.hide());

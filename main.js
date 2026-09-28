@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
+const { pathToFileURL } = require('url');
 
 const { JsonStore } = require('./lib/jsonStore');
 const { DEFAULT_RULES } = require('./lib/rules');
@@ -17,6 +18,11 @@ const WIDGET_HEIGHT = 580;
 const MIN_POLL_MINUTES = 1;
 const MAX_PROCESSED_IDS = 1000;
 const ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
+const INDEX_HTML = path.join(__dirname, 'src', 'index.html');
+const INDEX_URL = pathToFileURL(INDEX_HTML).href;
+const CANDIDATE_MAX_AGE_DAYS = 30; // unhandled mail candidates are dropped after this
+const ICS_TEMP_DIR = path.join(os.tmpdir(), 'mail-calendar-widget');
+const ICS_TEMP_TTL_MS = 5 * 60 * 1000;
 
 let mainWindow = null;
 let tray = null;
@@ -24,7 +30,7 @@ let pollTimer = null;
 let quitting = false;
 
 const userDir = app.getPath('userData');
-const settings = new JsonStore(path.join(userDir, 'settings.json'), {
+const SETTINGS_DEFAULTS = {
   // [{ id, provider: 'daum'|'naver'|'gmail'|'custom', user, passEnc, host, port }]
   accounts: [],
   pollMinutes: 3,
@@ -34,31 +40,49 @@ const settings = new JsonStore(path.join(userDir, 'settings.json'), {
   alwaysOnTop: false,
   rules: DEFAULT_RULES,
   bounds: null,
-});
+};
 // events: confirmed calendar entries; candidates: work mails waiting for the
 // user to confirm; cursors (per account id)/processedIds: where the IMAP
 // check left off.
-const data = new JsonStore(path.join(userDir, 'data.json'), {
+const DATA_DEFAULTS = {
   events: [],
   candidates: [],
   cursors: {},
   processedIds: [],
-});
+};
+// Both stores hold mail-derived personal data (addresses, subjects, summaries),
+// so they are encrypted with the OS key store (DPAPI on Windows). They are
+// opened after app 'ready' because safeStorage isn't usable before that.
+let settings = null;
+let data = null;
 
-// Earlier versions had a single Daum account under settings.account.
-(function migrateSingleAccount() {
+function storeCodec() {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  return {
+    encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
+    decrypt: (b64) => safeStorage.decryptString(Buffer.from(b64, 'base64')),
+  };
+}
+
+function openStores() {
+  const codec = storeCodec();
+  settings = new JsonStore(path.join(userDir, 'settings.json'), SETTINGS_DEFAULTS, codec);
+  data = new JsonStore(path.join(userDir, 'data.json'), DATA_DEFAULTS, codec);
+
+  // Earlier versions had a single Daum account under settings.account.
   const old = settings.data.account;
-  if (!old) return;
-  if (old.user) {
+  if (old && old.user) {
     const id = crypto.randomUUID();
     settings.data.accounts.push({ id, provider: 'daum', user: old.user, passEnc: old.passEnc, host: '', port: 993 });
     if (data.data.cursor) data.data.cursors[id] = data.data.cursor;
   }
   delete settings.data.account;
   delete data.data.cursor;
+  // (re)write both so files from older versions get encrypted right away
   settings.save();
   data.save();
-})();
+}
+
 const status = { checking: false, lastCheck: null, message: '', error: false };
 
 // ---------- password (Windows DPAPI via safeStorage) ----------
@@ -206,6 +230,7 @@ async function checkMail() {
       data.data.cursors[account.id] = cursor;
     });
     data.data.processedIds = data.data.processedIds.slice(-MAX_PROCESSED_IDS);
+    pruneOldCandidates();
     data.save();
     status.lastCheck = new Date().toISOString();
     notifyNew(created);
@@ -216,6 +241,12 @@ async function checkMail() {
     status.checking = false;
     broadcast();
   }
+}
+
+// Don't keep mail summaries around forever for mails nobody acted on.
+function pruneOldCandidates() {
+  const cutoff = Date.now() - CANDIDATE_MAX_AGE_DAYS * 86400000;
+  data.data.candidates = data.data.candidates.filter((c) => new Date(c.receivedAt).getTime() >= cutoff);
 }
 
 function schedulePolling() {
@@ -258,9 +289,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      spellcheck: false,
+      devTools: !app.isPackaged,
     },
   });
-  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  mainWindow.loadFile(INDEX_HTML);
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   // developer tools for the widget UI while running from source (npm start / VS Code)
@@ -348,15 +383,28 @@ function createTray() {
 
 // ---------- IPC ----------
 
+// Only the widget's own page may call into the main process.
+function fromWidget(event) {
+  const frame = event.senderFrame;
+  return !!(mainWindow && event.sender === mainWindow.webContents && frame && frame.url.split(/[?#]/)[0] === INDEX_URL);
+}
+
+function handle(channel, fn) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!fromWidget(event)) throw new Error('blocked');
+    return fn(event, ...args);
+  });
+}
+
 function listFromInput(v) {
   return (Array.isArray(v) ? v : String(v || '').split(','))
     .map((s) => String(s).trim())
     .filter(Boolean);
 }
 
-ipcMain.handle('state:get', () => publicState());
+handle('state:get', () => publicState());
 
-ipcMain.handle('settings:save', (_e, input) => {
+handle('settings:save', (_e, input) => {
   const s = settings.data;
   const previous = new Map(s.accounts.map((a) => [a.id, a]));
   const accounts = [];
@@ -402,7 +450,7 @@ ipcMain.handle('settings:save', (_e, input) => {
 
 // Test what's typed in the form; fall back to the saved password when the
 // password field was left empty for an existing account.
-ipcMain.handle('mail:test', async (_e, acc = {}) => {
+handle('mail:test', async (_e, acc = {}) => {
   const saved = settings.data.accounts.find((a) => a.id === acc.id);
   const provider = acc.provider || 'custom';
   const pass = acc.password ? normalizePassword(provider, acc.password) : saved ? decryptPassword(saved.passEnc) : '';
@@ -411,12 +459,12 @@ ipcMain.handle('mail:test', async (_e, acc = {}) => {
   return testConnection({ provider, host: acc.host, port: acc.port, user: String(acc.user).trim(), pass });
 });
 
-ipcMain.handle('mail:check', async () => {
+handle('mail:check', async () => {
   await checkMail();
   return publicState();
 });
 
-ipcMain.handle('candidate:accept', (_e, candidateId, events) => {
+handle('candidate:accept', (_e, candidateId, events) => {
   const idx = data.data.candidates.findIndex((c) => c.id === candidateId);
   if (idx === -1) return publicState();
   addEventsFromCandidate(data.data.candidates[idx], events || []);
@@ -426,14 +474,14 @@ ipcMain.handle('candidate:accept', (_e, candidateId, events) => {
   return publicState();
 });
 
-ipcMain.handle('candidate:dismiss', (_e, candidateId) => {
+handle('candidate:dismiss', (_e, candidateId) => {
   data.data.candidates = data.data.candidates.filter((c) => c.id !== candidateId);
   data.save();
   broadcast();
   return publicState();
 });
 
-ipcMain.handle('event:save', (_e, ev) => {
+handle('event:save', (_e, ev) => {
   const clean = cleanEvent(ev);
   if (!clean) return publicState();
   const idx = data.data.events.findIndex((x) => x.id === clean.id);
@@ -444,14 +492,14 @@ ipcMain.handle('event:save', (_e, ev) => {
   return publicState();
 });
 
-ipcMain.handle('event:delete', (_e, id) => {
+handle('event:delete', (_e, id) => {
   data.data.events = data.data.events.filter((x) => x.id !== id);
   data.save();
   broadcast();
   return publicState();
 });
 
-ipcMain.handle('ics:export', async () => {
+handle('ics:export', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
     title: '캘린더 내보내기',
     defaultPath: path.join(app.getPath('documents'), '업무일정.ics'),
@@ -464,18 +512,45 @@ ipcMain.handle('ics:export', async () => {
 
 // Opening a one-event .ics hands it to the default calendar app (Outlook /
 // Windows Calendar), which shows its own "save to calendar" dialog.
-ipcMain.handle('ics:open', async (_e, id) => {
+handle('ics:open', async (_e, id) => {
   const ev = data.data.events.find((x) => x.id === id);
   if (!ev) return false;
-  const file = path.join(os.tmpdir(), `mail-calendar-${ev.id}.ics`);
-  fs.writeFileSync(file, toIcs([ev]));
+  fs.mkdirSync(ICS_TEMP_DIR, { recursive: true });
+  const file = path.join(ICS_TEMP_DIR, `${crypto.randomUUID()}.ics`);
+  fs.writeFileSync(file, toIcs([ev]), { mode: 0o600 });
   const err = await shell.openPath(file);
+  // the calendar app has read it by then; don't leave event details in temp
+  setTimeout(() => fs.rm(file, { force: true }, () => {}), ICS_TEMP_TTL_MS);
   return !err;
 });
 
-ipcMain.on('window:hide', () => mainWindow && mainWindow.hide());
+function clearIcsTemp() {
+  fs.rmSync(ICS_TEMP_DIR, { recursive: true, force: true });
+}
+
+// "모든 데이터 삭제": accounts, passwords, candidates, events, temp files
+handle('data:wipe', () => {
+  clearInterval(pollTimer);
+  settings.reset();
+  data.reset();
+  clearIcsTemp();
+  applyOpenAtLogin(false);
+  schedulePolling();
+  setStatus('모든 계정과 데이터를 삭제했습니다.');
+  return publicState();
+});
+
+ipcMain.on('window:hide', (event) => {
+  if (fromWidget(event) && mainWindow) mainWindow.hide();
+});
 
 // ---------- app lifecycle ----------
+
+function lockDownSessions() {
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, callback) => callback(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -484,6 +559,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId(APP_ID); // needed for Windows toast notifications
+    lockDownSessions();
+    openStores();
+    clearIcsTemp();
     createWindow();
     createTray();
     schedulePolling();
@@ -492,6 +570,18 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     quitting = true;
+    clearIcsTemp();
+  });
+
+  // The widget never needs to leave its own page: no navigation, no popups,
+  // no <webview>, and every browser permission (camera, notifications from
+  // the page, geolocation, ...) is refused.
+  app.on('web-contents-created', (_e, contents) => {
+    contents.on('will-navigate', (e, url) => {
+      if (url !== INDEX_URL) e.preventDefault();
+    });
+    contents.on('will-attach-webview', (e) => e.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
   });
 
   // keep running in the tray when the widget window is hidden

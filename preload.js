@@ -12,5 +12,6 @@ contextBridge.exposeInMainWorld('widgetAPI', {
   deleteEvent: (id) => ipcRenderer.invoke('event:delete', id),
   exportIcs: () => ipcRenderer.invoke('ics:export'),
   openIcs: (id) => ipcRenderer.invoke('ics:open', id),
+  wipeData: () => ipcRenderer.invoke('data:wipe'),
   hide: () => ipcRenderer.send('window:hide'),
 });

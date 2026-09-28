@@ -2,7 +2,7 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
     <title>메일 캘린더 위젯</title>
     <link rel="stylesheet" href="style.css" />
   </head>
@@ -69,6 +69,12 @@
 
             <button type="submit" class="primary wide">저장</button>
           </form>
+
+          <fieldset class="danger-zone">
+            <legend>데이터 삭제</legend>
+            <p class="hint">저장된 메일 계정·비밀번호, 일정 후보, 캘린더 일정을 이 PC에서 모두 지웁니다. 메일함의 메일은 지워지지 않습니다.</p>
+            <button type="button" id="btn-wipe" class="small-btn danger">모든 데이터 삭제</button>
+          </fieldset>
         </section>
       </main>
 
