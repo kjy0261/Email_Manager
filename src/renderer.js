@@ -118,8 +118,11 @@ function renderInbox() {
     const summary = el('div', { class: 'cand-summary', text: c.summary, title: '클릭해서 펼치기' });
     summary.addEventListener('click', () => summary.classList.toggle('open'));
 
-    const card = el('div', { class: 'cand' }, [
-      el('div', { class: 'cand-subject', text: c.subject || '(제목 없음)' }),
+    const card = el('div', { class: c.urgent ? 'cand urgent' : 'cand' }, [
+      el('div', { class: 'cand-subject' }, [
+        c.urgent ? el('span', { class: 'urgent-badge', text: '긴급' }) : null,
+        document.createTextNode(c.subject || '(제목 없음)'),
+      ]),
       el('div', {
         class: 'cand-meta',
         text: [c.account, c.from, relativeTime(c.receivedAt), c.reason].filter(Boolean).join(' · '),
