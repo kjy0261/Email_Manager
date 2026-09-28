@@ -4,14 +4,22 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release version tag to create, e.g. v1.0.0 (leave empty for a test build without a release)'
+        required: false
+        default: ''
 
 permissions:
-  contents: write # softprops/action-gh-release needs write access to create/update releases
+  contents: write # softprops/action-gh-release needs write access to create tags/releases
 
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # a pushed v* tag, or the tag typed when running the workflow by hand
+      RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || inputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,7 +40,11 @@ jobs:
           path: dist/*.exe
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.RELEASE_TAG != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: 메일 캘린더 위젯 ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
           files: dist/*.exe

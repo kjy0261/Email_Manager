@@ -117,8 +117,13 @@ npm test
 npm run build:win
 ```
 
-또는 GitHub Actions의 `Build Windows Installer` 워크플로를 수동 실행하면 Actions
-아티팩트로 `.exe`가 올라오고, `v1.0.0` 형식의 태그를 푸시하면 GitHub Release에도 첨부됩니다.
+또는 GitHub Actions의 `Build Windows Installer` 워크플로를 쓰세요.
+
+- **배포(Release)**: Actions 탭 → Build Windows Installer → **Run workflow**에서 `release_tag`에
+  `v1.0.1`처럼 새 버전을 입력하고 실행하면, 태그와 GitHub Release가 만들어지고 `.exe`가 첨부됩니다.
+  (먼저 `package.json`의 `version`도 같은 번호로 올려 두세요.)
+- **테스트 빌드**: `release_tag`를 비워 두고 실행하면 Release 없이 Actions 아티팩트로만 `.exe`가 올라옵니다.
+- `v1.0.0` 형식의 태그를 직접 푸시해도 Release가 만들어집니다.
 
 ```bash
 git tag v1.0.0
