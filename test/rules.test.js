@@ -73,3 +73,13 @@ test('ics output has folded lines and escaped text', () => {
   assert.match(ics, /DTEND;VALUE=DATE:20261101/);
   for (const line of ics.split('\r\n')) assert.ok(Buffer.byteLength(line) <= 75, line);
 });
+
+test('urgent mail gets [긴급] title and is checked by default', () => {
+  const c = mailToCandidate(
+    { from: 'kim@mycompany.co.kr', subject: '자료 요청', date: new Date(2026, 8, 25, 9, 0), text: 'ASAP 검토 부탁드립니다' },
+    rules,
+  );
+  assert.equal(c.urgent, true);
+  assert.equal(c.events[0].title, '[긴급] ASAP 검토 부탁드립니다');
+  assert.equal(c.events[0].noDate, false);
+});

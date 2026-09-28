@@ -128,7 +128,8 @@ function publicState() {
     },
     providers: PROVIDERS,
     events: [...data.data.events].sort((a, b) => `${a.date}${a.start || ''}`.localeCompare(`${b.date}${b.start || ''}`)),
-    candidates: data.data.candidates,
+    // urgent (ASAP / 긴급) mails first, otherwise newest first as stored
+    candidates: [...data.data.candidates].sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0)),
     status: { ...status, accountReady: isAccountReady() },
   };
 }
@@ -175,9 +176,12 @@ function addEventsFromCandidate(candidate, events) {
 
 function notifyNew(candidates) {
   if (!settings.data.notify || !Notification.isSupported() || candidates.length === 0) return;
-  const first = candidates[0];
+  const urgent = candidates.filter((c) => c.urgent);
+  const first = urgent[0] || candidates[0];
+  let title = urgent.length ? '긴급 업무 메일' : '새 업무 메일';
+  if (candidates.length > 1) title = urgent.length ? `긴급 포함 업무 메일 ${candidates.length}건` : `새 업무 메일 ${candidates.length}건`;
   const n = new Notification({
-    title: candidates.length === 1 ? '새 업무 메일' : `새 업무 메일 ${candidates.length}건`,
+    title,
     body: settings.data.autoAdd
       ? `${first.subject} - 캘린더에 추가했습니다`
       : `${first.subject}\n위젯에서 일정을 확인하고 추가하세요`,

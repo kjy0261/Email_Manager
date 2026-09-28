@@ -78,3 +78,29 @@ test('multiple dates on one line each get their own time', () => {
     ],
   );
 });
+
+test('relative day + request wording becomes a deadline', () => {
+  const ev = extractEvents('내일 확인 부탁드려요\n명일 오전 중 공유 바랍니다', REF);
+  assert.deepEqual(pick(ev), [{ date: '2026-09-26', start: null, end: null, allDay: true, kind: 'deadline' }]);
+});
+
+test('ASAP / 급히 / EOD without a date are due today and urgent', () => {
+  for (const line of ['ASAP 검토 부탁드립니다', '급히 확인 부탁드립니다', '가능한 빨리 회신 부탁드립니다', 'EOD까지 부탁드립니다', 'Please review ASAP']) {
+    const ev = extractEvents(line, REF);
+    assert.equal(ev.length, 1, line);
+    assert.equal(ev[0].date, '2026-09-25', line);
+    assert.equal(ev[0].kind, 'deadline', line);
+    assert.equal(ev[0].urgent, true, line);
+  }
+});
+
+test('urgent mail with a date keeps the date and is flagged', () => {
+  const ev = extractEvents('긴급: 서버 점검 안내\n10월 2일 오후 2시 점검', REF);
+  assert.deepEqual(ev.map((e) => [e.date, e.start, e.urgent]), [['2026-10-02', '14:00', true]]);
+});
+
+test('past-tense reports and greetings are not schedules', () => {
+  assert.deepEqual(extractEvents('오늘 확인했습니다', REF), []);
+  assert.deepEqual(extractEvents('내일 뵙겠습니다', REF), []);
+  assert.deepEqual(extractEvents('긴급 건은 어제 처리 완료했습니다', REF), []);
+});

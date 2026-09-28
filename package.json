@@ -1,6 +1,6 @@
 {
   "name": "mail-calendar-widget",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Windows desktop widget that watches Daum/Naver/Gmail mail over IMAP and turns work mails into calendar entries",
   "main": "main.js",
   "private": true,
